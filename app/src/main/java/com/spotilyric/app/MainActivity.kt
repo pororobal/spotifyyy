@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
@@ -119,6 +120,11 @@ fun SpotiLyricApp() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var hasNotificationAccess by remember { mutableStateOf(isNotificationServiceEnabled(context)) }
+    var startOverlayWhenAllowed by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        SyncOffsetStore.initialize(context)
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -129,6 +135,10 @@ fun SpotiLyricApp() {
                         ComponentName(context, SpotifyMediaListenerService::class.java),
                     )
                 }
+                if (startOverlayWhenAllowed && Settings.canDrawOverlays(context)) {
+                    FloatingLyricsService.start(context)
+                    startOverlayWhenAllowed = false
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -137,7 +147,22 @@ fun SpotiLyricApp() {
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0A0A0D)) {
         if (hasNotificationAccess) {
-            LyricsScreen()
+            LyricsScreen(
+                onRequestOverlay = {
+                    if (Settings.canDrawOverlays(context)) {
+                        FloatingLyricsService.start(context)
+                    } else {
+                        startOverlayWhenAllowed = true
+                        context.startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}"),
+                            ),
+                        )
+                    }
+                },
+                onStopOverlay = { FloatingLyricsService.stop(context) },
+            )
         } else {
             PermissionScreen(
                 onOpenSettings = {
@@ -213,8 +238,13 @@ private fun PermissionScreen(onOpenSettings: () -> Unit) {
 }
 
 @Composable
-private fun LyricsScreen() {
+private fun LyricsScreen(
+    onRequestOverlay: () -> Unit,
+    onStopOverlay: () -> Unit,
+) {
     val mediaState by MediaStateHolder.state.collectAsStateWithLifecycle()
+    val isOverlayRunning by OverlayStateHolder.isRunning.collectAsStateWithLifecycle()
+    val syncOffsetMs by SyncOffsetStore.offsetMs.collectAsStateWithLifecycle()
     var lyricsResult by remember { mutableStateOf<LyricsResult?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
@@ -253,8 +283,9 @@ private fun LyricsScreen() {
     }
 
     val lines = (lyricsResult as? LyricsResult.Synced)?.lines.orEmpty()
-    val activeIndex = remember(lines, currentPositionMs) {
-        lines.indexOfLast { currentPositionMs >= it.startTimeMs }
+    val lyricPositionMs = (currentPositionMs + syncOffsetMs).coerceAtLeast(0L)
+    val activeIndex = remember(lines, lyricPositionMs) {
+        lines.indexOfLast { lyricPositionMs >= it.startTimeMs }
     }
     val listState = rememberLazyListState()
 
@@ -273,7 +304,11 @@ private fun LyricsScreen() {
                 .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
-            TopTrackHeader(mediaState)
+            TopTrackHeader(
+                state = mediaState,
+                isOverlayRunning = isOverlayRunning,
+                onOverlayClick = if (isOverlayRunning) onStopOverlay else onRequestOverlay,
+            )
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
@@ -326,7 +361,7 @@ private fun LyricsScreen() {
                             val progress = when {
                                 isActive -> {
                                     val span = (line.endTimeMs - line.startTimeMs).coerceAtLeast(300L)
-                                    ((currentPositionMs - line.startTimeMs).toFloat() / span)
+                                    ((lyricPositionMs - line.startTimeMs).toFloat() / span)
                                         .coerceIn(0f, 1f)
                                 }
                                 index < activeIndex -> 1f
@@ -352,6 +387,9 @@ private fun LyricsScreen() {
             BottomControls(
                 mediaState = mediaState,
                 currentPositionMs = currentPositionMs,
+                syncOffsetMs = syncOffsetMs,
+                onAdjustSync = { SyncOffsetStore.adjust(context, it) },
+                onResetSync = { SyncOffsetStore.reset(context) },
             )
         }
     }
@@ -412,7 +450,11 @@ private fun DrawScope.drawOrb(color: Color, center: Offset, radius: Float) {
 }
 
 @Composable
-private fun TopTrackHeader(state: NowPlayingState) {
+private fun TopTrackHeader(
+    state: NowPlayingState,
+    isOverlayRunning: Boolean,
+    onOverlayClick: () -> Unit,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
@@ -462,6 +504,14 @@ private fun TopTrackHeader(state: NowPlayingState) {
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.2.sp,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        TextButton(onClick = onOverlayClick) {
+            Text(
+                text = if (isOverlayRunning) "플로팅 끄기" else "플로팅",
+                color = Color.White.copy(alpha = if (isOverlayRunning) 1f else 0.72f),
+                fontSize = 12.sp,
             )
         }
     }
@@ -531,7 +581,13 @@ private fun LyricRow(
 }
 
 @Composable
-private fun BottomControls(mediaState: NowPlayingState, currentPositionMs: Long) {
+private fun BottomControls(
+    mediaState: NowPlayingState,
+    currentPositionMs: Long,
+    syncOffsetMs: Long,
+    onAdjustSync: (Long) -> Unit,
+    onResetSync: () -> Unit,
+) {
     val progress = if (mediaState.durationMs > 0L) {
         (currentPositionMs.toFloat() / mediaState.durationMs).coerceIn(0f, 1f)
     } else {
@@ -595,6 +651,25 @@ private fun BottomControls(mediaState: NowPlayingState, currentPositionMs: Long)
                 enabled = mediaState.title.isNotBlank(),
             ) {
                 Text("다음", color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp)
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = { onAdjustSync(-500L) }) {
+                Text("−0.5초", color = Color.White.copy(alpha = 0.60f), fontSize = 12.sp)
+            }
+            TextButton(onClick = onResetSync) {
+                Text(
+                    text = "가사 싱크 ${formatOffset(syncOffsetMs)}",
+                    color = Color.White.copy(alpha = 0.82f),
+                    fontSize = 12.sp,
+                )
+            }
+            TextButton(onClick = { onAdjustSync(500L) }) {
+                Text("+0.5초", color = Color.White.copy(alpha = 0.60f), fontSize = 12.sp)
             }
         }
     }
