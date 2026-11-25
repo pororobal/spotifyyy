@@ -243,6 +243,7 @@ private fun LyricsScreen(
     onRequestOverlay: () -> Unit,
     onStopOverlay: () -> Unit,
 ) {
+    val context = LocalContext.current
     val mediaState by MediaStateHolder.state.collectAsStateWithLifecycle()
     val isOverlayRunning by OverlayStateHolder.isRunning.collectAsStateWithLifecycle()
     val syncOffsetMs by SyncOffsetStore.offsetMs.collectAsStateWithLifecycle()
