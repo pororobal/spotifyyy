@@ -124,6 +124,7 @@ fun SpotiLyricApp() {
 
     LaunchedEffect(Unit) {
         SyncOffsetStore.initialize(context)
+        LyricsRepository.initialize(context)
     }
 
     DisposableEffect(lifecycleOwner) {
