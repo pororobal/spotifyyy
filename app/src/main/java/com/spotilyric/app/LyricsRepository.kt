@@ -1,8 +1,11 @@
 package com.spotilyric.app
 
+import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.roundToLong
@@ -34,6 +37,11 @@ private data class LyricsRecord(
     val syncedLyrics: String? = null,
 )
 
+private data class CachedLyrics(
+    val instrumental: Boolean = false,
+    val lines: List<LyricLine> = emptyList(),
+)
+
 object LyricsRepository {
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -41,6 +49,18 @@ object LyricsRepository {
         .callTimeout(12, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
+    @Volatile
+    private var cacheDirectory: File? = null
+
+    fun initialize(context: Context) {
+        if (cacheDirectory != null) return
+        synchronized(this) {
+            if (cacheDirectory == null) {
+                cacheDirectory = File(context.applicationContext.filesDir, "lyrics_cache")
+                    .apply { mkdirs() }
+            }
+        }
+    }
 
     suspend fun fetchSyncedLyrics(
         trackName: String,
@@ -50,9 +70,12 @@ object LyricsRepository {
     ): LyricsResult = withContext(Dispatchers.IO) {
         if (trackName.isBlank()) return@withContext LyricsResult.NotFound
 
+        val cacheKey = cacheKey(trackName, artistName, albumName, durationMs)
+        readCache(cacheKey)?.let { return@withContext it }
+
         try {
             fetchExact(trackName, artistName, albumName, durationMs)?.let { record ->
-                return@withContext record.toResult(durationMs)
+                return@withContext record.toResult(durationMs).also { writeCache(cacheKey, it) }
             }
 
             val candidates = search(trackName, artistName, albumName)
@@ -61,12 +84,55 @@ object LyricsRepository {
                 .minByOrNull { it.matchScore(trackName, artistName, durationMs) }
                 ?: return@withContext LyricsResult.NotFound
 
-            best.toResult(durationMs)
+            best.toResult(durationMs).also { writeCache(cacheKey, it) }
         } catch (_: IOException) {
             LyricsResult.Failed("네트워크 연결을 확인해 주세요.")
         } catch (_: Exception) {
             LyricsResult.Failed("가사 응답을 처리하지 못했습니다.")
         }
+    }
+
+    private fun readCache(key: String): LyricsResult? {
+        val file = cacheDirectory?.resolve("$key.json") ?: return null
+        if (!file.isFile) return null
+        return runCatching {
+            val cached = gson.fromJson(file.readText(), CachedLyrics::class.java)
+            when {
+                cached.instrumental -> LyricsResult.Instrumental
+                cached.lines.isNotEmpty() -> LyricsResult.Synced(cached.lines)
+                else -> null
+            }
+        }.getOrNull()
+    }
+
+    private fun writeCache(key: String, result: LyricsResult) {
+        val cached = when (result) {
+            is LyricsResult.Synced -> CachedLyrics(lines = result.lines)
+            LyricsResult.Instrumental -> CachedLyrics(instrumental = true)
+            else -> return
+        }
+        val directory = cacheDirectory ?: return
+        runCatching {
+            directory.resolve("$key.json").writeText(gson.toJson(cached))
+            directory.listFiles()
+                ?.filter { it.isFile }
+                ?.sortedByDescending { it.lastModified() }
+                ?.drop(250)
+                ?.forEach { it.delete() }
+        }
+    }
+
+    private fun cacheKey(
+        trackName: String,
+        artistName: String,
+        albumName: String,
+        durationMs: Long,
+    ): String {
+        val identity = listOf(trackName, artistName, albumName, durationMs.toString())
+            .joinToString("|") { it.lowercase().trim() }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(identity.toByteArray())
+            .joinToString("") { "%02x".format(it) }
     }
 
     private fun fetchExact(
