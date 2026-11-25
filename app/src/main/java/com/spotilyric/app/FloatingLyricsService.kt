@@ -112,6 +112,7 @@ class FloatingLyricsService : Service() {
     override fun onCreate() {
         super.onCreate()
         SyncOffsetStore.initialize(this)
+        LyricsRepository.initialize(this)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
         createOverlay()
