@@ -354,7 +354,7 @@ class FloatingLyricsService : Service() {
     }
 }
 
-private fun formatOffset(offsetMs: Long): String = String.format(
+fun formatOffset(offsetMs: Long): String = String.format(
     Locale.US,
     "%+.1fs",
     offsetMs / 1_000f,
