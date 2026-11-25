@@ -117,7 +117,7 @@ object LyricsRepository {
             directory.listFiles()
                 ?.filter { it.isFile }
                 ?.sortedByDescending { it.lastModified() }
-                ?.drop(250)
+                ?.drop(2_500)
                 ?.forEach { it.delete() }
         }
     }
