@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -108,6 +110,10 @@ class FloatingLyricsService : Service() {
     private lateinit var offsetView: TextView
     private var lyrics: List<LyricLine> = emptyList()
     private var lyricJob: Job? = null
+    private var lastCurrentLine = ""
+    private var lastNextLine = ""
+    private var lastOffset = Long.MIN_VALUE
+    private var lastPlaying: Boolean? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -132,22 +138,32 @@ class FloatingLyricsService : Service() {
 
     private fun observePlayback() {
         scope.launch {
-            MediaStateHolder.state.collectLatest { state ->
+            MediaStateHolder.state.collect { state ->
                 titleView.text = if (state.title.isBlank()) {
                     "Spotify에서 음악을 재생해 주세요"
                 } else {
                     listOf(state.title, state.artist).filter { it.isNotBlank() }.joinToString(" · ")
                 }
-                playPauseButton.text = if (state.isPlaying) "❚❚" else "▶"
+            }
+        }
+        scope.launch {
+            MediaStateHolder.state
+                .map { state ->
+                    TrackRequest(state.title, state.artist, state.album, state.durationMs)
+                }
+                .distinctUntilChanged()
+                .collectLatest { track ->
                 lyricJob?.cancel()
                 lyrics = emptyList()
-                if (state.title.isNotBlank()) {
+                lastCurrentLine = ""
+                lastNextLine = ""
+                if (track.title.isNotBlank()) {
                     lyricJob = scope.launch {
                         lyrics = (LyricsRepository.fetchSyncedLyrics(
-                            trackName = state.title,
-                            artistName = state.artist,
-                            albumName = state.album,
-                            durationMs = state.durationMs,
+                            trackName = track.title,
+                            artistName = track.artist,
+                            albumName = track.album,
+                            durationMs = track.durationMs,
                         ) as? LyricsResult.Synced)?.lines.orEmpty()
                     }
                 }
@@ -156,7 +172,7 @@ class FloatingLyricsService : Service() {
         scope.launch {
             while (isActive) {
                 renderLyrics()
-                delay(100L)
+                delay(150L)
             }
         }
     }
@@ -166,21 +182,36 @@ class FloatingLyricsService : Service() {
         val positionMs = (state.interpolatedPositionMs() + SyncOffsetStore.offsetMs.value)
             .coerceAtLeast(0L)
         val activeIndex = lyrics.indexOfLast { positionMs >= it.startTimeMs }
-        currentLineView.text = when {
+        val currentText = when {
             state.title.isBlank() -> "재생 중인 곡이 없습니다"
             lyrics.isEmpty() -> "동기화 가사를 찾는 중…"
             activeIndex < 0 -> lyrics.first().text
             else -> lyrics[activeIndex].text
         }
-        nextLineView.text = lyrics.getOrNull(activeIndex + 1)?.text.orEmpty()
-        offsetView.text = formatOffset(SyncOffsetStore.offsetMs.value)
-        playPauseButton.text = if (state.isPlaying) "❚❚" else "▶"
+        val nextText = lyrics.getOrNull(activeIndex + 1)?.text.orEmpty()
+        val offset = SyncOffsetStore.offsetMs.value
+        if (currentText != lastCurrentLine) {
+            currentLineView.text = currentText
+            lastCurrentLine = currentText
+        }
+        if (nextText != lastNextLine) {
+            nextLineView.text = nextText
+            lastNextLine = nextText
+        }
+        if (offset != lastOffset) {
+            offsetView.text = formatOffset(offset)
+            lastOffset = offset
+        }
+        if (state.isPlaying != lastPlaying) {
+            playPauseButton.text = if (state.isPlaying) "❚❚" else "▶"
+            lastPlaying = state.isPlaying
+        }
     }
 
     private fun createOverlay() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         windowParams = WindowManager.LayoutParams(
-            dp(340),
+            minOf(dp(340), resources.displayMetrics.widthPixels - dp(24)),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -239,9 +270,7 @@ class FloatingLyricsService : Service() {
         controls.addView(offsetView, LinearLayout.LayoutParams(0, dp(38), 1f))
         controls.addView(button("+0.5") { SyncOffsetStore.adjust(this, 500L) })
         playPauseButton = button("▶") {
-            val state = MediaStateHolder.state.value
-            val transport = MediaStateHolder.activeController?.transportControls
-            if (state.isPlaying) transport?.pause() else transport?.play()
+            MediaStateHolder.togglePlayback()
         }
         controls.addView(playPauseButton)
         root.addView(controls, LinearLayout.LayoutParams.MATCH_PARENT, dp(40))
@@ -353,6 +382,13 @@ class FloatingLyricsService : Service() {
         super.onDestroy()
     }
 }
+
+private data class TrackRequest(
+    val title: String,
+    val artist: String,
+    val album: String,
+    val durationMs: Long,
+)
 
 fun formatOffset(offsetMs: Long): String = String.format(
     Locale.US,
