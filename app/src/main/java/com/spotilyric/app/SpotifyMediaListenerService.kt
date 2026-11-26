@@ -78,6 +78,24 @@ object MediaStateHolder {
             playbackSpeed = playback?.playbackSpeed?.takeIf { it > 0f } ?: 1.0f,
         )
     }
+
+    fun seekTo(positionMs: Long) {
+        activeController?.transportControls?.seekTo(positionMs.coerceAtLeast(0L))
+    }
+
+    fun togglePlayback() {
+        val controller = activeController ?: return
+        if (_state.value.isPlaying) controller.transportControls.pause()
+        else controller.transportControls.play()
+    }
+
+    fun skipPrevious() {
+        activeController?.transportControls?.skipToPrevious()
+    }
+
+    fun skipNext() {
+        activeController?.transportControls?.skipToNext()
+    }
 }
 
 class SpotifyMediaListenerService : NotificationListenerService() {
@@ -124,9 +142,12 @@ class SpotifyMediaListenerService : NotificationListenerService() {
     }
 
     private fun bindBestController(controllers: List<MediaController>) {
-        val target = controllers.firstOrNull { it.packageName.contains("spotify", ignoreCase = true) }
-            ?: controllers.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
-            ?: controllers.firstOrNull()
+        // 다른 음악 앱의 세션을 잡아 재생 명령을 잘못 보내지 않도록 Spotify만 연결한다.
+        val target = controllers
+            .filter { it.packageName.contains("spotify", ignoreCase = true) }
+            .maxByOrNull { controller ->
+                if (controller.playbackState?.state == PlaybackState.STATE_PLAYING) 1 else 0
+            }
 
         if (target?.sessionToken != currentController?.sessionToken) {
             currentController?.unregisterCallback(controllerCallback)
