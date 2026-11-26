@@ -13,7 +13,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -23,11 +22,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +43,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,7 +59,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -86,10 +86,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.palette.graphics.Palette
 import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sin
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,8 +104,8 @@ class MainActivity : ComponentActivity() {
 private fun SpotiLyricTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            background = Color(0xFF0A0A0D),
-            surface = Color(0xFF111218),
+            background = Color(0xFF121214),
+            surface = Color(0xFF121214),
             primary = Color.White,
             onPrimary = Color.Black,
             onBackground = Color.White,
@@ -146,7 +146,7 @@ fun SpotiLyricApp() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0A0A0D)) {
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF121214)) {
         if (hasNotificationAccess) {
             LyricsScreen(
                 onRequestOverlay = {
@@ -165,11 +165,9 @@ fun SpotiLyricApp() {
                 onStopOverlay = { FloatingLyricsService.stop(context) },
             )
         } else {
-            PermissionScreen(
-                onOpenSettings = {
-                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                },
-            )
+            PermissionScreen {
+                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
         }
     }
 }
@@ -180,8 +178,10 @@ private fun PermissionScreen(onOpenSettings: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF1B2338), Color(0xFF0A0A0D), Color(0xFF0A0A0D)),
+                Brush.radialGradient(
+                    colors = listOf(Color(0xFF27334C), Color(0xFF121214)),
+                    center = Offset(180f, 120f),
+                    radius = 900f,
                 ),
             )
             .statusBarsPadding()
@@ -192,25 +192,19 @@ private fun PermissionScreen(onOpenSettings: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier
-                    .size(76.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Color.White.copy(alpha = 0.12f)),
+                    .size(68.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.10f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("♪", color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Bold)
+                Text("♪", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(22.dp))
-            Text(
-                text = "SpotiLyric",
-                color = Color.White,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.6).sp,
-            )
+            Text("SpotiLyric", fontSize = 29.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp)
             Spacer(Modifier.height(12.dp))
             Text(
                 text = "Spotify의 현재 곡과 재생 위치를 읽으려면\n알림 접근 권한이 필요합니다.",
-                color = Color.White.copy(alpha = 0.68f),
+                color = Color.White.copy(alpha = 0.64f),
                 fontSize = 15.sp,
                 lineHeight = 23.sp,
                 textAlign = TextAlign.Center,
@@ -219,17 +213,15 @@ private fun PermissionScreen(onOpenSettings: () -> Unit) {
             Button(
                 onClick = onOpenSettings,
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 Text("알림 접근 허용하기", color = Color.Black, fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.height(14.dp))
             Text(
                 text = "스위치가 비활성화되어 있다면 앱 정보의 우측 상단 메뉴에서\n‘제한된 설정 허용’을 먼저 켜 주세요.",
-                color = Color.White.copy(alpha = 0.38f),
+                color = Color.White.copy(alpha = 0.36f),
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
                 textAlign = TextAlign.Center,
@@ -243,7 +235,6 @@ private fun LyricsScreen(
     onRequestOverlay: () -> Unit,
     onStopOverlay: () -> Unit,
 ) {
-    val context = LocalContext.current
     val mediaState by MediaStateHolder.state.collectAsStateWithLifecycle()
     val isOverlayRunning by OverlayStateHolder.isRunning.collectAsStateWithLifecycle()
     val syncOffsetMs by SyncOffsetStore.offsetMs.collectAsStateWithLifecycle()
@@ -251,16 +242,13 @@ private fun LyricsScreen(
     var isLoading by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var retryKey by remember { mutableIntStateOf(0) }
+    var paletteColors by remember { mutableStateOf(defaultPalette) }
 
-    val paletteColors = remember(mediaState.albumArt) { extractPaletteColors(mediaState.albumArt) }
+    LaunchedEffect(mediaState.albumArt) {
+        paletteColors = withContext(Dispatchers.Default) { extractPaletteColors(mediaState.albumArt) }
+    }
 
-    LaunchedEffect(
-        mediaState.title,
-        mediaState.artist,
-        mediaState.album,
-        mediaState.durationMs,
-        retryKey,
-    ) {
+    LaunchedEffect(mediaState.title, mediaState.artist, mediaState.album, mediaState.durationMs, retryKey) {
         if (mediaState.title.isBlank()) {
             lyricsResult = null
             isLoading = false
@@ -276,11 +264,10 @@ private fun LyricsScreen(
         isLoading = false
     }
 
-    LaunchedEffect(mediaState) {
+    LaunchedEffect(Unit) {
         while (isActive) {
-            withFrameNanos {
-                currentPositionMs = mediaState.interpolatedPositionMs()
-            }
+            currentPositionMs = MediaStateHolder.state.value.interpolatedPositionMs()
+            delay(100L)
         }
     }
 
@@ -291,158 +278,111 @@ private fun LyricsScreen(
     }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(activeIndex, lines) {
-        if (activeIndex in lines.indices) {
-            listState.animateScrollToItem(index = activeIndex, scrollOffset = -260)
-        }
-    }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF121214))
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+    ) {
+        val compact = maxHeight < 560.dp
+        val centerPadding = (maxHeight / 2 - if (compact) 28.dp else 36.dp).coerceAtLeast(72.dp)
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0A0A0D))) {
-        FluidAlbumBackground(colors = paletteColors, isPlaying = mediaState.isPlaying)
+        StaticAlbumBackground(paletteColors)
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding(),
-        ) {
-            TopTrackHeader(
-                state = mediaState,
-                isOverlayRunning = isOverlayRunning,
-                onOverlayClick = if (isOverlayRunning) onStopOverlay else onRequestOverlay,
+        when {
+            mediaState.title.isBlank() -> GuideMessage(
+                title = "재생 중인 곡이 없습니다",
+                detail = "Spotify에서 음악을 재생하면\n가사가 자동으로 표시됩니다.",
             )
-
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                when {
-                    mediaState.title.isBlank() -> GuideMessage(
-                        title = "재생 중인 곡이 없습니다",
-                        detail = "Spotify에서 음악을 재생하면\n동기화 가사가 자동으로 표시됩니다.",
-                    )
-
-                    isLoading -> GuideMessage(
-                        title = "가사를 불러오는 중",
-                        detail = "LRCLIB에서 곡을 찾고 있습니다.",
-                    )
-
-                    lyricsResult is LyricsResult.Instrumental -> GuideMessage(
-                        title = "연주곡입니다",
-                        detail = "등록된 보컬 가사가 없는 곡입니다.",
-                    )
-
-                    lyricsResult is LyricsResult.NotFound -> GuideMessage(
-                        title = "동기화 가사를 찾지 못했습니다",
-                        detail = "곡 버전이나 재생 시간에 맞는 가사가 없을 수 있습니다.",
-                        actionLabel = "다시 찾기",
-                        onAction = { retryKey++ },
-                    )
-
-                    lyricsResult is LyricsResult.Failed -> GuideMessage(
-                        title = "가사를 불러오지 못했습니다",
-                        detail = (lyricsResult as LyricsResult.Failed).message,
-                        actionLabel = "다시 시도",
-                        onAction = { retryKey++ },
-                    )
-
-                    lines.isNotEmpty() -> LazyColumn(
-                        state = listState,
-                        contentPadding = PaddingValues(
-                            start = 26.dp,
-                            top = 116.dp,
-                            end = 26.dp,
-                            bottom = 250.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(25.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        itemsIndexed(
-                            items = lines,
-                            key = { index, line -> "${line.startTimeMs}-$index" },
-                        ) { index, line ->
-                            val isActive = index == activeIndex
-                            val distance = if (activeIndex >= 0) abs(index - activeIndex) else Int.MAX_VALUE
-                            val progress = when {
-                                isActive -> {
-                                    val span = (line.endTimeMs - line.startTimeMs).coerceAtLeast(300L)
-                                    ((lyricPositionMs - line.startTimeMs).toFloat() / span)
-                                        .coerceIn(0f, 1f)
-                                }
-                                index < activeIndex -> 1f
-                                else -> 0f
+            isLoading -> GuideMessage("가사를 불러오는 중", "저장된 가사와 온라인 소스를 확인하고 있습니다.")
+            lyricsResult is LyricsResult.Instrumental -> GuideMessage("연주곡입니다", "등록된 보컬 가사가 없습니다.")
+            lyricsResult is LyricsResult.NotFound -> GuideMessage(
+                title = "가사를 찾지 못했습니다",
+                detail = "곡 버전이나 제목 표기가 다를 수 있습니다.",
+                actionLabel = "다시 찾기",
+                onAction = { retryKey++ },
+            )
+            lyricsResult is LyricsResult.Failed -> GuideMessage(
+                title = "가사를 불러오지 못했습니다",
+                detail = (lyricsResult as LyricsResult.Failed).message,
+                actionLabel = "다시 시도",
+                onAction = { retryKey++ },
+            )
+            lines.isNotEmpty() -> {
+                LaunchedEffect(activeIndex, lines) {
+                    if (activeIndex in lines.indices) listState.animateScrollToItem(activeIndex)
+                }
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(
+                        start = if (compact) 28.dp else 26.dp,
+                        top = centerPadding,
+                        end = if (compact) 28.dp else 26.dp,
+                        bottom = centerPadding,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(if (compact) 19.dp else 26.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    itemsIndexed(
+                        items = lines,
+                        key = { index, line -> "${line.startTimeMs}-$index" },
+                    ) { index, line ->
+                        val isActive = index == activeIndex
+                        val distance = if (activeIndex >= 0) abs(index - activeIndex) else Int.MAX_VALUE
+                        val progress = when {
+                            isActive -> {
+                                val span = (line.endTimeMs - line.startTimeMs).coerceAtLeast(300L)
+                                ((lyricPositionMs - line.startTimeMs).toFloat() / span).coerceIn(0f, 1f)
                             }
-
-                            LyricRow(
-                                text = line.text,
-                                isActive = isActive,
-                                distance = distance,
-                                progress = progress,
-                                onClick = {
-                                    MediaStateHolder.activeController
-                                        ?.transportControls
-                                        ?.seekTo(line.startTimeMs)
-                                },
-                            )
+                            index < activeIndex -> 1f
+                            else -> 0f
                         }
+                        LyricRow(
+                            text = line.text,
+                            isActive = isActive,
+                            distance = distance,
+                            progress = progress,
+                            compact = compact,
+                            onClick = { MediaStateHolder.seekTo(line.startTimeMs - syncOffsetMs) },
+                        )
                     }
                 }
             }
-
-            BottomControls(
-                mediaState = mediaState,
-                currentPositionMs = currentPositionMs,
-                syncOffsetMs = syncOffsetMs,
-                onAdjustSync = { SyncOffsetStore.adjust(context, it) },
-                onResetSync = { SyncOffsetStore.reset(context) },
-            )
         }
+
+        TopTrackHeader(
+            state = mediaState,
+            isOverlayRunning = isOverlayRunning,
+            compact = compact,
+            onOverlayClick = if (isOverlayRunning) onStopOverlay else onRequestOverlay,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+        BottomControls(
+            mediaState = mediaState,
+            currentPositionMs = currentPositionMs,
+            compact = compact,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 
-@Composable
-private fun FluidAlbumBackground(colors: List<Color>, isPlaying: Boolean) {
-    var phase by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(isPlaying) {
-        while (isActive) {
-            phase += if (isPlaying) 0.008f else 0.002f
-            delay(16L)
-        }
-    }
+private val defaultPalette = listOf(Color(0xFF74424B), Color(0xFF2F405E))
 
+@Composable
+private fun StaticAlbumBackground(colors: List<Color>) {
     Canvas(modifier = Modifier.fillMaxSize()) {
-        drawRect(Color(0xFF090A0E))
-        val width = size.width
-        val height = size.height
-        drawOrb(
-            color = colors[0].copy(alpha = 0.54f),
-            center = Offset(
-                width * (0.28f + 0.18f * sin(phase)),
-                height * (0.25f + 0.13f * cos(phase * 0.8f)),
-            ),
-            radius = width * 0.86f,
-        )
-        drawOrb(
-            color = colors[1].copy(alpha = 0.43f),
-            center = Offset(
-                width * (0.76f + 0.16f * cos(phase * 0.7f)),
-                height * (0.62f + 0.17f * sin(phase * 0.9f)),
-            ),
-            radius = width * 0.92f,
-        )
-        drawOrb(
-            color = colors[2].copy(alpha = 0.38f),
-            center = Offset(
-                width * (0.38f + 0.22f * sin(phase * 0.5f)),
-                height * (0.86f + 0.08f * cos(phase)),
-            ),
-            radius = width * 0.78f,
-        )
-        drawRect(Color.Black.copy(alpha = 0.34f))
+        drawRect(Color(0xFF121214))
+        drawOrb(colors[0].copy(alpha = 0.34f), Offset(size.width * 0.12f, size.height * 0.16f), size.width * 0.9f)
+        drawOrb(colors[1].copy(alpha = 0.31f), Offset(size.width * 0.9f, size.height * 0.72f), size.width * 0.96f)
+        drawRect(Color(0xFF09090B).copy(alpha = 0.28f))
     }
 }
 
 private fun DrawScope.drawOrb(color: Color, center: Offset, radius: Float) {
     drawCircle(
         brush = Brush.radialGradient(
-            colors = listOf(color, color.copy(alpha = color.alpha * 0.35f), Color.Transparent),
+            colors = listOf(color, color.copy(alpha = color.alpha * 0.28f), Color.Transparent),
             center = center,
             radius = radius,
         ),
@@ -455,65 +395,57 @@ private fun DrawScope.drawOrb(color: Color, center: Offset, radius: Float) {
 private fun TopTrackHeader(
     state: NowPlayingState,
     isOverlayRunning: Boolean,
+    compact: Boolean,
     onOverlayClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color(0xC8121214), Color.Transparent)))
+            .padding(horizontal = if (compact) 18.dp else 20.dp, vertical = if (compact) 8.dp else 13.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(50.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(Color.White.copy(alpha = 0.12f)),
+                .size(if (compact) 38.dp else 44.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .background(Color.White.copy(alpha = 0.10f)),
             contentAlignment = Alignment.Center,
         ) {
-            val art = state.albumArt
-            if (art != null) {
+            state.albumArt?.let {
                 Image(
-                    bitmap = art.asImageBitmap(),
+                    bitmap = it.asImageBitmap(),
                     contentDescription = "앨범 아트",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-            } else {
-                Text("♪", color = Color.White.copy(alpha = 0.55f), fontSize = 22.sp)
-            }
+            } ?: Text("♪", color = Color.White.copy(alpha = 0.48f), fontSize = 20.sp)
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = state.title.ifBlank { "재생 중인 곡 없음" },
-                color = Color.White,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(3.dp))
+            Spacer(Modifier.height(2.dp))
             Text(
                 text = state.artist.ifBlank { "Spotify" },
-                color = Color.White.copy(alpha = 0.60f),
+                color = Color.White.copy(alpha = 0.50f),
                 fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (state.title.isNotBlank()) {
-            Text(
-                text = if (state.isPlaying) "LIVE" else "PAUSED",
-                color = Color.White.copy(alpha = if (state.isPlaying) 0.72f else 0.38f),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.2.sp,
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        TextButton(onClick = onOverlayClick) {
+        TextButton(onClick = onOverlayClick, contentPadding = PaddingValues(horizontal = 9.dp)) {
             Text(
                 text = if (isOverlayRunning) "플로팅 끄기" else "플로팅",
-                color = Color.White.copy(alpha = if (isOverlayRunning) 1f else 0.72f),
+                color = Color.White.copy(alpha = if (isOverlayRunning) 0.96f else 0.62f),
                 fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
@@ -525,33 +457,36 @@ private fun LyricRow(
     isActive: Boolean,
     distance: Int,
     progress: Float,
+    compact: Boolean,
     onClick: () -> Unit,
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isActive) 1.03f else 0.96f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessLow),
+        targetValue = if (isActive) 1f else 0.97f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 180f),
         label = "lyricScale",
     )
-    val targetAlpha = when {
-        isActive -> 1f
-        distance == 1 -> 0.45f
-        distance == 2 -> 0.28f
-        else -> 0.16f
-    }
-    val rowAlpha by animateFloatAsState(targetValue = targetAlpha, label = "lyricAlpha")
+    val rowAlpha by animateFloatAsState(
+        targetValue = when {
+            isActive -> 1f
+            distance == 1 -> 0.43f
+            distance == 2 -> 0.25f
+            else -> 0.14f
+        },
+        label = "lyricAlpha",
+    )
     val blurRadius = when {
         isActive -> 0.dp
-        distance == 1 -> 1.dp
-        distance == 2 -> 2.dp
-        else -> 3.dp
+        distance == 1 -> 0.5.dp
+        distance == 2 -> 1.5.dp
+        else -> 2.5.dp
     }
     val textBrush = if (isActive) {
         val stop = progress.coerceIn(0.01f, 0.91f)
         Brush.horizontalGradient(
             0f to Color.White,
             stop to Color.White,
-            (stop + 0.08f) to Color.White.copy(alpha = 0.42f),
-            1f to Color.White.copy(alpha = 0.42f),
+            (stop + 0.08f).coerceAtMost(0.99f) to Color.White.copy(alpha = 0.38f),
+            1f to Color.White.copy(alpha = 0.38f),
         )
     } else {
         SolidColor(Color.White)
@@ -561,12 +496,21 @@ private fun LyricRow(
         text = text,
         style = TextStyle(
             brush = textBrush,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            lineHeight = 36.sp,
-            letterSpacing = (-0.4).sp,
+            fontSize = if (isActive) {
+                if (compact) 32.sp else 38.sp
+            } else {
+                if (compact) 22.sp else 27.sp
+            },
+            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Bold,
+            lineHeight = if (isActive) {
+                if (compact) 39.sp else 47.sp
+            } else {
+                if (compact) 29.sp else 35.sp
+            },
+            letterSpacing = (-0.5).sp,
         ),
         modifier = Modifier
+            .fillMaxWidth()
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -586,94 +530,73 @@ private fun LyricRow(
 private fun BottomControls(
     mediaState: NowPlayingState,
     currentPositionMs: Long,
-    syncOffsetMs: Long,
-    onAdjustSync: (Long) -> Unit,
-    onResetSync: () -> Unit,
+    compact: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val progress = if (mediaState.durationMs > 0L) {
         (currentPositionMs.toFloat() / mediaState.durationMs).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
+    } else 0f
+    var dragProgress by remember { mutableFloatStateOf(progress) }
+    var isDragging by remember { mutableStateOf(false) }
+    LaunchedEffect(progress, isDragging) { if (!isDragging) dragProgress = progress }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.20f)),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress)
-                    .fillMaxHeight()
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.88f)),
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatTime(currentPositionMs), color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp)
-            Text(formatTime(mediaState.durationMs), color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp)
-        }
-        Spacer(Modifier.height(4.dp))
-        Row(
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            TextButton(
-                onClick = { MediaStateHolder.activeController?.transportControls?.skipToPrevious() },
-                enabled = mediaState.title.isNotBlank(),
-            ) {
-                Text("이전", color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp)
-            }
-            Button(
-                onClick = {
-                    val controls = MediaStateHolder.activeController?.transportControls
-                    if (mediaState.isPlaying) controls?.pause() else controls?.play()
-                },
-                enabled = mediaState.title.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White.copy(alpha = 0.16f),
-                    disabledContainerColor = Color.White.copy(alpha = 0.06f),
-                ),
-                shape = CircleShape,
-            ) {
-                Text(
-                    text = if (mediaState.isPlaying) "일시정지" else "재생",
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                )
-            }
-            TextButton(
-                onClick = { MediaStateHolder.activeController?.transportControls?.skipToNext() },
-                enabled = mediaState.title.isNotBlank(),
-            ) {
-                Text("다음", color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE8121214))))
+            .padding(horizontal = if (compact) 20.dp else 24.dp, vertical = if (compact) 4.dp else 10.dp),
+    ) {
+        Slider(
+            value = dragProgress,
+            onValueChange = {
+                isDragging = true
+                dragProgress = it
+            },
+            onValueChangeFinished = {
+                MediaStateHolder.seekTo((dragProgress * mediaState.durationMs).toLong())
+                isDragging = false
+            },
+            enabled = mediaState.durationMs > 0L,
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Color.White.copy(alpha = 0.9f),
+                inactiveTrackColor = Color.White.copy(alpha = 0.2f),
+                disabledThumbColor = Color.Transparent,
+                disabledActiveTrackColor = Color.White.copy(alpha = 0.12f),
+                disabledInactiveTrackColor = Color.White.copy(alpha = 0.12f),
+            ),
+            modifier = Modifier.fillMaxWidth().height(if (compact) 20.dp else 28.dp),
+        )
+        if (!compact) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(formatTime(currentPositionMs), color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp)
+                Text(formatTime(mediaState.durationMs), color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp)
             }
         }
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 30.dp else 36.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(top = if (compact) 0.dp else 4.dp),
         ) {
-            TextButton(onClick = { onAdjustSync(-500L) }) {
-                Text("−0.5초", color = Color.White.copy(alpha = 0.60f), fontSize = 12.sp)
+            PlayerButton("◀◀", 17.sp, mediaState.title.isNotBlank()) { MediaStateHolder.skipPrevious() }
+            PlayerButton(if (mediaState.isPlaying) "❚❚" else "▶", if (mediaState.isPlaying) 22.sp else 27.sp, mediaState.title.isNotBlank()) {
+                MediaStateHolder.togglePlayback()
             }
-            TextButton(onClick = onResetSync) {
-                Text(
-                    text = "가사 싱크 ${formatOffset(syncOffsetMs)}",
-                    color = Color.White.copy(alpha = 0.82f),
-                    fontSize = 12.sp,
-                )
-            }
-            TextButton(onClick = { onAdjustSync(500L) }) {
-                Text("+0.5초", color = Color.White.copy(alpha = 0.60f), fontSize = 12.sp)
-            }
+            PlayerButton("▶▶", 17.sp, mediaState.title.isNotBlank()) { MediaStateHolder.skipNext() }
         }
+    }
+}
+
+@Composable
+private fun PlayerButton(label: String, size: androidx.compose.ui.unit.TextUnit, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = Color.White.copy(alpha = if (enabled) 0.88f else 0.25f), fontSize = size, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -684,56 +607,36 @@ private fun GuideMessage(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
-        contentAlignment = Alignment.Center,
-    ) {
+    Box(modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = title,
-                color = Color.White.copy(alpha = 0.76f),
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-            )
+            Text(title, color = Color.White.copy(alpha = 0.74f), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(8.dp))
-            Text(
-                text = detail,
-                color = Color.White.copy(alpha = 0.46f),
-                fontSize = 14.sp,
-                lineHeight = 21.sp,
-                textAlign = TextAlign.Center,
-            )
+            Text(detail, color = Color.White.copy(alpha = 0.44f), fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center)
             if (actionLabel != null && onAction != null) {
-                Spacer(Modifier.height(14.dp))
-                TextButton(onClick = onAction) {
-                    Text(actionLabel, color = Color.White, fontWeight = FontWeight.SemiBold)
-                }
+                Spacer(Modifier.height(12.dp))
+                TextButton(onClick = onAction) { Text(actionLabel, color = Color.White) }
             }
         }
     }
 }
 
 private fun extractPaletteColors(bitmap: Bitmap?): List<Color> {
-    val fallback = listOf(Color(0xFF2B3A67), Color(0xFF496A81), Color(0xFF1B1F3B))
-    if (bitmap == null) return fallback
-    val palette = runCatching { Palette.from(bitmap).generate() }.getOrNull() ?: return fallback
-    val first = palette.getVibrantColor(palette.getDominantColor(0xFF2B3A67.toInt()))
-    val second = palette.getMutedColor(palette.getDarkVibrantColor(0xFF496A81.toInt()))
-    val third = palette.getDarkMutedColor(0xFF1B1F3B.toInt())
-    return listOf(Color(first), Color(second), Color(third))
+    if (bitmap == null) return defaultPalette
+    val palette = runCatching { Palette.from(bitmap).resizeBitmapArea(12_000).generate() }.getOrNull()
+        ?: return defaultPalette
+    return listOf(
+        Color(palette.getMutedColor(palette.getDominantColor(0xFF74424B.toInt()))),
+        Color(palette.getDarkVibrantColor(palette.getDarkMutedColor(0xFF2F405E.toInt()))),
+    )
 }
 
 private fun formatTime(timeMs: Long): String {
-    val totalSeconds = (timeMs.coerceAtLeast(0L) / 1_000L)
+    val totalSeconds = timeMs.coerceAtLeast(0L) / 1_000L
     return "%d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
 }
 
 private fun isNotificationServiceEnabled(context: Context): Boolean {
-    val flat = Settings.Secure.getString(
-        context.contentResolver,
-        "enabled_notification_listeners",
-    )
+    val flat = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
     if (TextUtils.isEmpty(flat)) return false
     return flat.split(':').any { name ->
         ComponentName.unflattenFromString(name)?.packageName == context.packageName
